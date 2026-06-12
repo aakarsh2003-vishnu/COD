@@ -1,0 +1,24 @@
+{
+  "mcod_tr": {
+    "root": "/home/intern/Desktop/MCOD_FM_robust/MCOD_processed/train",
+    "image": {
+      "path": "official_false_colour",
+      "suffix": ".png"
+    },
+    "mask": {
+      "path": "ground_truth_mask",
+      "suffix": ".png"
+    }
+  },
+  "mcod_te": {
+    "root": "/home/intern/Desktop/MCOD_FM_robust/MCOD_processed/test",
+    "image": {
+      "path": "official_false_colour",
+      "suffix": ".png"
+    },
+    "mask": {
+      "path": "ground_truth_mask",
+      "suffix": ".png"
+    }
+  }
+}

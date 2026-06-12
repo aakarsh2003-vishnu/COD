@@ -1,0 +1,5 @@
+split,images,masks,mat_files,expected,all_equal
+train,1027,1027,1027,1027.0,
+test,500,500,500,500.0,
+train_match,1027,1027,1027,,1.0
+test_match,500,500,500,,1.0

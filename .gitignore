@@ -1,0 +1,66 @@
+# Python/cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Environments and local config
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# IDE / agent / OS files
+.idea/
+.vscode/
+.agents/
+.codex/
+.DS_Store
+Thumbs.db
+
+# Nested cloned repositories inside this project
+CamoFormer/.git/
+SINet-V2/.git/
+ZoomNet/.git/
+
+# Raw datasets and generated processed datasets
+data/
+MCOD_processed/
+MSIResults/
+scripts/data/
+
+# Model checkpoints / weights
+*.pth
+*.pt
+*.ckpt
+*.onnx
+CamoFormer/checkpoint/
+SINet-V2/snapshot/
+ZoomNet/checkpoints/
+ZoomNet/**/pth/
+
+# Full prediction, training, and experiment output folders
+CamoFormer/output/
+CamoFormer/outputs/
+SINet-V2/res/
+SINet-V2/outputs/
+ZoomNet/output/
+ZoomNet/output_4_cod/
+ZoomNet/output_4_sod/
+ZoomNet/predictions/
+outputs/**/predictions/
+
+# Logs / TensorBoard / temporary runtime files
+*.log
+*.tfevents.*
+wandb/
+runs/
+tmp/
+temp/
+
+# Large or local-only reference documents
+related_documents/

@@ -1,0 +1,7 @@
+type,count
+train_images,1027
+test_images,500
+train_masks,1027
+test_masks,500
+train_mat,1027
+test_mat,500

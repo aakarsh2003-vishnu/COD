@@ -1,0 +1,11 @@
+numpy
+pandas
+h5py
+Pillow
+matplotlib
+scikit-learn
+scikit-image
+scipy
+opencv-python-headless
+pysodmetrics
+tqdm

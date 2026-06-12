@@ -1,0 +1,685 @@
+MCOD DATA PREPROCESSING AND 8-BAND MODEL ADAPTATION REPORT
+===========================================================
+
+Purpose
+-------
+This note explains how the MCOD multispectral data was preprocessed in this
+project and how each RGB camouflaged object detection model was adapted from
+3-band input to 8-band input. It is written in report-friendly language, with
+implementation details from the local codebase.
+
+
+1. Original MCOD Data Format
+----------------------------
+The original MCOD samples are multispectral images with 8 spectral bands.
+Each sample is stored as a .mat file. In the preprocessing code, the .mat file
+is opened with h5py and the dataset key "gray" is read:
+
+    bands_cube = f["gray"][:]
+
+The loaded cube has shape:
+
+    (8, H, W)
+
+This means the first axis is the spectral band index, and the remaining two
+axes are spatial height and width. The cube is split into:
+
+    S1, S2, S3, S4, S5, S6, S7, S8
+
+The ground-truth mask is loaded separately as a grayscale image from the GT
+folder. The mask is kept as the binary segmentation target.
+
+The preprocessing script also handles an orientation issue. The .mat bands may
+be transposed relative to the official mask and pseudo-colour images. For this
+reason, every generated view is aligned to the mask shape. If the generated
+view has shape (W, H) while the mask has shape (H, W), the view is transposed.
+This avoids train/test misalignment between input images and masks.
+
+Main code location:
+
+    process_dataset.py
+
+
+2. Normalization Strategy
+-------------------------
+The project uses two normalization strategies depending on the output type.
+
+For generated RGB-like images:
+
+    Each single band or projected component is min-max normalized to [0, 255]
+    and saved as uint8 PNG.
+
+The formula is:
+
+    normalized = (band - band_min) / (band_max - band_min)
+    uint8_band = normalized * 255
+
+If a band is constant, a zero image is produced to avoid division by zero.
+
+For native 8-band input:
+
+    The 8 bands are stacked into an H x W x 8 float32 array.
+    Each band is independently min-max normalized to [0, 1].
+    The result is saved as a .npy file.
+
+This distinction is important:
+
+    PNG views are for RGB-compatible visualization and RGB model training.
+    NPY views preserve all 8 bands for true multispectral model training.
+
+
+3. Generated Views and Why They Exist
+-------------------------------------
+The preprocessing pipeline produces several derived views for each sample.
+They are saved under:
+
+    MCOD_processed/train/
+    MCOD_processed/test/
+
+Each split contains the same set of subfolders.
+
+
+3.1 official_false_colour
+-------------------------
+Folder:
+
+    MCOD_processed/<split>/official_false_colour
+
+This is a 3-channel false-colour image created from selected spectral bands:
+
+    R <- S5
+    G <- S3
+    B <- S2
+
+In code:
+
+    create_false_colour(S2, S3, S5)
+
+This view is useful because most COD models are originally designed for RGB
+input. The official false-colour image compresses selected multispectral
+information into a standard 3-channel format. It allows direct fine-tuning of
+RGB models without modifying their first layer.
+
+Interpretation:
+
+    The network sees a normal 3-channel image, but the channels are not
+    standard visible RGB. Instead, they are selected spectral bands mapped into
+    RGB slots.
+
+Usage in this project:
+
+    - SINet-V2 RGB/false-colour fine-tuning
+    - CamoFormer RGB/false-colour fine-tuning
+    - ZoomNet RGB/false-colour fine-tuning
+
+
+3.2 S6_rededge_gray3
+--------------------
+Folder:
+
+    MCOD_processed/<split>/S6_rededge_gray3
+
+This view uses only spectral band S6. The single grayscale band is normalized
+to [0, 255] and copied into three channels:
+
+    R <- S6
+    G <- S6
+    B <- S6
+
+This creates a 3-channel image while preserving only the red-edge band
+information. It is useful for visual inspection or for testing whether this
+specific spectral region improves object/background separation.
+
+
+3.3 S7_nir1_gray3
+-----------------
+Folder:
+
+    MCOD_processed/<split>/S7_nir1_gray3
+
+This view uses only spectral band S7, usually treated as a near-infrared band.
+The band is normalized and repeated into all three image channels:
+
+    R <- S7
+    G <- S7
+    B <- S7
+
+This produces an RGB-compatible image containing only the S7 spectral signal.
+
+
+3.4 S8_nir2_gray3
+-----------------
+Folder:
+
+    MCOD_processed/<split>/S8_nir2_gray3
+
+This view uses only spectral band S8, also in the near-infrared group. Like
+S6 and S7, it is normalized and repeated into three channels:
+
+    R <- S8
+    G <- S8
+    B <- S8
+
+
+3.5 visible_group_projection
+----------------------------
+Folder:
+
+    MCOD_processed/<split>/visible_group_projection
+
+This view applies PCA to the first five bands:
+
+    S1, S2, S3, S4, S5
+
+The idea is to compress the visible or near-visible multispectral group into
+three principal components. The pipeline stacks the five bands into an
+H x W x 5 cube, reshapes it into a list of pixels with five spectral values
+per pixel, and applies PCA with 3 components.
+
+The output is:
+
+    PC1 -> R-like channel
+    PC2 -> G-like channel
+    PC3 -> B-like channel
+
+Each PCA component is independently min-max normalized to [0, 255].
+
+This is not the same as selecting three bands manually. PCA finds directions of
+maximum variance across the selected spectral group. Therefore, this view can
+highlight spectral differences that may not be obvious in a direct false-colour
+mapping.
+
+
+3.6 nir_group_projection
+------------------------
+Folder:
+
+    MCOD_processed/<split>/nir_group_projection
+
+This view applies PCA to the NIR/red-edge group:
+
+    S6, S7, S8
+
+Because there are exactly three bands, PCA returns three components. The result
+is saved as a 3-channel PNG after component-wise min-max normalization.
+
+This view summarizes the NIR portion of the multispectral cube in an
+RGB-compatible image. It is useful because camouflaged objects can have
+spectral signatures in NIR bands that are not visible in ordinary RGB.
+
+
+3.7 all8_input
+--------------
+Folder:
+
+    MCOD_processed/<split>/all8_input
+
+This is the native multispectral input used for true 8-band training.
+Unlike the other generated views, it is not saved as PNG. It is saved as:
+
+    .npy
+
+The shape is:
+
+    H x W x 8
+
+The dtype is:
+
+    float32
+
+The value range is:
+
+    [0, 1]
+
+Each channel is normalized independently. This view preserves all spectral
+bands and is the correct input for models adapted to accept 8 channels.
+
+
+3.8 ground_truth_mask
+---------------------
+Folder:
+
+    MCOD_processed/<split>/ground_truth_mask
+
+The mask is the official segmentation target. It is saved as an image and used
+for training and evaluation. In the model-specific datasets, masks are loaded
+as grayscale images and converted into binary masks where foreground pixels are
+non-zero.
+
+
+4. Why Both False-Colour and all8_input Are Used
+------------------------------------------------
+The project uses two types of experiments:
+
+1. RGB-compatible false-colour experiments
+
+   These use official_false_colour images. The models still receive 3-channel
+   input, so their original architecture can be used with little or no change.
+   This is useful for comparing how well RGB COD methods perform when supplied
+   with a carefully selected multispectral-to-RGB mapping.
+
+2. Native 8-band experiments
+
+   These use all8_input .npy files. The models receive all 8 spectral channels.
+   This requires adapting the model input layer or inserting an adapter. This
+   setting tests whether full multispectral information improves detection.
+
+
+5. General 3-Band to 8-Band Adaptation Problem
+----------------------------------------------
+Most pretrained COD models were designed for 3-channel RGB images. Their first
+convolutional layer expects input shaped like:
+
+    B x 3 x H x W
+
+The MCOD native multispectral input has shape:
+
+    B x 8 x H x W
+
+Therefore, the first part of each model must be changed. The rest of the model
+usually does not need to change, because after the first layer the network
+works on internal feature maps rather than raw input channels.
+
+There are two common adaptation strategies:
+
+1. Replace or modify the first convolution so it accepts 8 channels.
+
+   Example:
+
+       old conv weight: out_channels x 3 x k x k
+       new conv weight: out_channels x 8 x k x k
+
+   The question then becomes how to initialize the new 8-channel weights from
+   pretrained 3-channel weights.
+
+2. Insert a learnable adapter before the original model.
+
+   Example:
+
+       8-channel input -> 1x1 conv -> 3-channel pseudo-RGB -> original model
+
+   This keeps the pretrained model unchanged internally, but adds a front-end
+   projection layer that learns or encodes how to combine 8 bands into 3.
+
+Both approaches are used in this project, depending on the model.
+
+
+6. SINet-V2 8-Band Adaptation
+-----------------------------
+Main files:
+
+    SINet-V2/lib/Network_Res2Net_GRA_NCD.py
+    SINet-V2/lib/Res2Net_v1b.py
+    SINet-V2/train_mcod_msi8.py
+    SINet-V2/utils/mcod_msi8_dataset.py
+
+SINet-V2 uses a Res2Net backbone. The model constructor was made configurable:
+
+    Network(channel=32, imagenet_pretrained=True, in_channels=3)
+
+For 8-band training, the model is created as:
+
+    Network(channel=32, imagenet_pretrained=False, in_channels=8)
+
+This changes the first convolution of the Res2Net backbone from 3 input
+channels to 8 input channels.
+
+6.1 Input data
+--------------
+The SINet-V2 MSI8 dataset loader reads:
+
+    MCOD_processed/train/all8_input/*.npy
+    MCOD_processed/train/ground_truth_mask/*.png
+
+The .npy input may be H x W x 8 or 8 x H x W. If it is H x W x 8, it is
+transposed to:
+
+    8 x H x W
+
+Values are clipped to [0, 1]. If the maximum value is above 1, the loader
+rescales it. The image and mask are resized to the SINet training size, and
+random horizontal flip is used during training.
+
+6.2 Pretrained checkpoint adaptation
+------------------------------------
+The key function is:
+
+    adapt_first_conv_weight(old_weight, new_weight)
+
+The original RGB first convolution has weights:
+
+    old_weight: out_channels x 3 x k x k
+
+The new MSI8 first convolution has weights:
+
+    new_weight: out_channels x 8 x k x k
+
+The adaptation strategy is:
+
+1. Compute the mean of the RGB filters:
+
+       mean_rgb = old_weight.mean(dim=1)
+
+2. Initialize all 8 input channels with this mean RGB filter.
+
+3. Preserve the official false-colour mapping by placing the original RGB
+   filters into the corresponding spectral channels:
+
+       adapted[:, 4] = old_weight[:, 0]  # S5 receives old red filter
+       adapted[:, 2] = old_weight[:, 1]  # S3 receives old green filter
+       adapted[:, 1] = old_weight[:, 2]  # S2 receives old blue filter
+
+This is a strong initialization because it connects the model's pretrained RGB
+knowledge to the official MCOD false-colour convention:
+
+    R <- S5
+    G <- S3
+    B <- S2
+
+All other spectral channels start from the average RGB response, so they are
+not random. They can then be fine-tuned during training.
+
+6.3 Output
+----------
+SINet-V2 still outputs a 1-channel segmentation prediction. The output is not
+8-channel. For COD, this is correct:
+
+    Input:  B x 8 x H x W
+    Output: B x 1 x H x W
+
+
+7. CamoFormer 8-Band Adaptation
+-------------------------------
+Main files:
+
+    CamoFormer/model/CamoFormer_MSI8.py
+    CamoFormer/train_mcod_msi8.py
+    CamoFormer/mcod_msi8_dataset.py
+
+CamoFormer was adapted differently from SINet-V2. Instead of replacing the
+internal encoder first convolution directly, the project adds a learnable
+1x1 adapter before the original CamoFormer model:
+
+    self.adapter = nn.Conv2d(8, 3, kernel_size=1, bias=False)
+    self.camoformer = CamoFormer(cfg)
+
+The forward pass is:
+
+    8-channel input -> adapter -> 3-channel tensor -> original CamoFormer
+
+7.1 Adapter initialization
+--------------------------
+The adapter is initialized to reproduce the official false-colour mapping:
+
+    adapter output channel 0 receives S5
+    adapter output channel 1 receives S3
+    adapter output channel 2 receives S2
+
+In code:
+
+    self.adapter.weight[0, 4, 0, 0] = 1.0
+    self.adapter.weight[1, 2, 0, 0] = 1.0
+    self.adapter.weight[2, 1, 0, 0] = 1.0
+
+Therefore, at initialization:
+
+    output_R = S5
+    output_G = S3
+    output_B = S2
+
+This means the 8-band CamoFormer starts from exactly the same band selection
+as the official false-colour image. However, because the adapter is a trainable
+convolution, training can learn to use the other bands as well.
+
+7.2 Why this approach is useful
+-------------------------------
+This approach preserves compatibility with the pretrained CamoFormer. The
+original CamoFormer still sees a 3-channel tensor, so the pretrained checkpoint
+can be loaded into the inner CamoFormer without shape mismatch.
+
+Only the adapter is new. This makes the adaptation conservative and stable,
+especially when the training set is relatively small.
+
+7.3 Input data
+--------------
+CamoFormer MSI8 training uses:
+
+    MCOD_processed/train/all8_input/*.npy
+    MCOD_processed/train/ground_truth_mask/*.png
+
+The loader converts the input to:
+
+    8 x H x W
+
+It rescales values to [0, 1] if needed, resizes image and mask to the training
+size, and applies random horizontal flip during training.
+
+7.4 Checkpoint loading
+----------------------
+The CamoFormer MSI8 training script loads the pretrained checkpoint into:
+
+    model.camoformer
+
+not into the adapter. Keys that match the inner CamoFormer are loaded, and
+non-matching keys are skipped. The adapter starts from the official
+false-colour initialization described above.
+
+7.5 Output
+----------
+CamoFormer MSI8 also outputs segmentation masks, not 8-band images:
+
+    Input:  B x 8 x H x W
+    Output: B x 1 x H x W
+
+
+8. ZoomNet 8-Band Adaptation
+----------------------------
+Main files:
+
+    ZoomNet/methods/zoomnet/zoomnet.py
+    ZoomNet/utils/io/params.py
+    ZoomNet/dataset/msi_cod.py
+    ZoomNet/configs/zoomnet/mcod_zoomnet_msi8.py
+    ZoomNet/configs/_base_/dataset/mcod_msi8_dataset_configs.json
+
+ZoomNet uses a ResNet50 encoder created through timm:
+
+    timm.create_model(model_name="resnet50", pretrained=False,
+                      in_chans=in_chans, features_only=True)
+
+The base ZoomNet class now accepts:
+
+    in_chans=3
+
+The MSI8 version is registered as:
+
+    class ZoomNet_MSI8(ZoomNet):
+        def __init__(self):
+            super().__init__(in_chans=8)
+
+This changes the ResNet50 stem so the first convolution accepts 8 input
+channels.
+
+8.1 Input data
+--------------
+ZoomNet MSI8 uses dataset types:
+
+    msi8_cod_tr
+    msi8_cod_te
+
+The dataset config points to:
+
+    MCOD_processed/train/all8_input
+    MCOD_processed/test/all8_input
+
+with suffix:
+
+    .npy
+
+The loader reads the H x W x 8 float32 array and applies Albumentations
+normalization with:
+
+    mean = (0.5,) * 8
+    std = (0.5,) * 8
+    max_pixel_value = 1.0
+
+The max_pixel_value is important because the .npy arrays are already in
+[0, 1]. If max_pixel_value were left at the default 255, the values would be
+incorrectly divided again and the signal would become too small.
+
+ZoomNet uses multi-scale input. For every sample, the 8-band image is resized
+to three scales:
+
+    image0.5
+    image1.0
+    image1.5
+
+Each tensor has 8 channels:
+
+    image0.5: B x 8 x H/2 x W/2
+    image1.0: B x 8 x H x W
+    image1.5: B x 8 x 1.5H x 1.5W
+
+The model combines features from these three scales using ZoomNet's existing
+mixed-scale architecture.
+
+8.2 Pretrained checkpoint adaptation
+------------------------------------
+The pretrained COD ZoomNet checkpoint was trained with 3-channel input, so its
+first convolution has shape:
+
+    64 x 3 x 7 x 7
+
+The new MSI8 ZoomNet first convolution has shape:
+
+    64 x 8 x 7 x 7
+
+The loader detects this shape mismatch for keys ending in:
+
+    conv1.weight
+
+Then it adapts the checkpoint weight:
+
+1. Copy the original RGB filters into the first three channels.
+
+2. For the additional five channels, use the mean of the RGB filters:
+
+       extra_value = old_weight.mean(dim=1, keepdim=True)
+
+3. Repeat that mean filter across channels 4 to 8.
+
+In simplified form:
+
+    adapted[:, :3] = old_weight
+    adapted[:, 3:] = mean(old_weight over RGB channels)
+
+This avoids random initialization of the new channels and lets the full model
+load with no missing or extra keys.
+
+8.3 Difference from SINet-V2 mapping
+------------------------------------
+SINet-V2 explicitly maps the pretrained RGB filters to the official false
+colour spectral channels:
+
+    red -> S5
+    green -> S3
+    blue -> S2
+
+ZoomNet currently uses a simpler general expansion:
+
+    first three channels copy RGB weights
+    remaining five channels get mean RGB weights
+
+This is a valid 8-band adaptation and it works technically. However, it is not
+as semantically tied to the official false-colour mapping as the SINet-V2
+adaptation.
+
+If exact false-colour-aware initialization is desired for ZoomNet, the first
+convolution adaptation can be changed to match the SINet-V2 strategy:
+
+    initialize all 8 channels with mean RGB filter
+    put old red filter into S5 channel
+    put old green filter into S3 channel
+    put old blue filter into S2 channel
+
+That would make ZoomNet's MSI8 initialization more consistent with the
+official false-colour convention.
+
+8.4 Output
+----------
+ZoomNet MSI8 produces a 1-channel segmentation map:
+
+    Input:  B x 8 x H x W
+    Output: B x 1 x H x W
+
+This is correct for MCOD because the task is binary camouflaged object
+segmentation.
+
+
+9. Relationship to the MCOD Paper
+---------------------------------
+The MCOD paper states that RGB COD models were adapted to multispectral input
+by expanding the original 3-channel input layer to 8 channels and initializing
+the 8-channel first-layer weights from pretrained weights.
+
+The project follows the same broad idea:
+
+    - SINet-V2 expands the first convolution to 8 channels.
+    - ZoomNet expands the first convolution to 8 channels.
+    - CamoFormer uses an 8-to-3 adapter, preserving the original model while
+      learning a multispectral projection.
+
+The exact implementation differs by model because each architecture is built
+differently. SINet-V2 and ZoomNet modify the backbone input stem. CamoFormer
+uses an adapter because it is safer and easier to reuse the pretrained
+CamoFormer checkpoint without changing the internal encoder.
+
+
+10. Practical Summary for the Report
+------------------------------------
+The dataset was preprocessed into two categories of inputs:
+
+1. RGB-compatible spectral views
+
+   These are saved as PNG files. They include official false-colour,
+   single-band grayscale views, visible-band PCA projection, and NIR-band PCA
+   projection. They allow ordinary RGB COD models to be trained or visualized
+   without architectural changes.
+
+2. Native 8-band multispectral tensors
+
+   These are saved as .npy files under all8_input. They preserve all spectral
+   channels and are used for true multispectral training.
+
+For model adaptation:
+
+    SINet-V2:
+        Replaced the first convolution with an 8-channel version and initialized
+        it using RGB pretrained weights mapped to S5, S3, and S2, with other
+        channels initialized by mean RGB filters.
+
+    CamoFormer:
+        Added a learnable 1x1 convolution adapter from 8 channels to 3 channels.
+        The adapter is initialized to reproduce official false-colour
+        (S5, S3, S2), then trained together with the model.
+
+    ZoomNet:
+        Created ZoomNet_MSI8 with an 8-channel ResNet50 input stem. The
+        pretrained RGB first convolution is expanded from 3 to 8 channels by
+        copying RGB filters and filling extra channels with the RGB mean filter.
+
+All adapted models still produce a 1-channel segmentation mask. The purpose of
+8-band adaptation is to change the input modality, not the output modality.
+
+
+11. Key Takeaway
+----------------
+The preprocessing pipeline creates both human-viewable false-colour images and
+native 8-band tensors. False-colour images make it possible to test existing
+RGB COD models directly, while all8_input enables true multispectral learning.
+
+The model adaptations are designed to reuse pretrained RGB knowledge rather
+than training from scratch. This is important because MCOD has only 1,027
+training samples, so stable initialization helps reduce overfitting and makes
+training more reliable.
+

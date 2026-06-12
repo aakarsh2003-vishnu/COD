@@ -1,0 +1,6 @@
+category,count
+train_images,1027
+test_images,500
+total_samples,1527
+expected_total,1527
+match_expected,1

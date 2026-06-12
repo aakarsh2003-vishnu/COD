@@ -1,0 +1,9 @@
+metric,direction,implementation
+S-measure,Higher,PySODMetrics Smeasure
+E-measure,Higher,PySODMetrics Emeasure
+F-measure,Higher,PySODMetrics Fmeasure
+MAE,Lower,PySODMetrics MAE plus local MAE
+Weighted F-measure,Higher,PySODMetrics WeightedFmeasure
+Dice,Higher,Local binary overlap
+mIoU,Higher,Local binary IoU
+Boundary F-score,Higher,Local boundary tolerance metric

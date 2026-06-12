@@ -1,0 +1,6 @@
+ATTRIBUTE LABELS VALIDATION REPORT
+==================================================
+Timestamp: 2026-06-03 11:07:50.314326
+Attribute files found: 0
+
+No attribute files detected in standard locations.

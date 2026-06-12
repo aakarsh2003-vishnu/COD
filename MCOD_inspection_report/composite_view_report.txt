@@ -1,0 +1,12 @@
+COMPOSITE VIEW AVAILABILITY REPORT
+==================================================
+Timestamp: 2026-06-03 11:07:50.805502
+Composite directories found: 0
+RGB composite files detected: 1527
+
+Sample RGB files (first 5):
+  - data/MCOD_resized/TrainDataset/Pcolor/19700101000511487_00-00001.png
+  - data/MCOD_resized/TrainDataset/Pcolor/19700101000540162_00-00003.png
+  - data/MCOD_resized/TrainDataset/Pcolor/19700101000558652_00-00004.png
+  - data/MCOD_resized/TrainDataset/Pcolor/19700101000610920_00-00005.png
+  - data/MCOD_resized/TrainDataset/Pcolor/19700101000639854_00-00006.png
